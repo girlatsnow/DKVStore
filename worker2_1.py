@@ -1,17 +1,13 @@
 import rpyc
 import os
-import sys
-import subprocess
 import logging
 import socket
 import random
-from enum import enum
 import pickle
 import threading
 import time
 from rpyc.utils.server import ThreadedServer
-
-
+import copy
 logging.basicConfig(level=logging.INFO)
 
 MASTERHOST = 'localhost'
@@ -37,28 +33,16 @@ class MyService(rpyc.Service):
         if not self.status== 0:
             print 'load checkpoint'
             for fname in os.listdir(DIR):
-                #if not fname=='graph':
                     f = open(os.path.join(DIR, fname), 'rb')
                     mp = pickle.load(f)
                     f.close()
                     self.dictTable[int(fname)] = mp
-            #
-            # gf = open(os.path.join(DIR, 'graph'), 'r')
-            # gid = int(gf.readline().strip())
-            # self.dictTable[gid]={}
-            # for line in gf:
-            #     gl = line.split()
-            #     self.dictTable[gid][int(gl[0])]=map(int, gl[1:])
-
         self.working = True
-
         print 'working status: ', self.working
 
     def exposed_createtable(self):
-
         while not self.working:
             pass
-
         self.cnt+=1
         self.dictTable[self.cnt]={}
         logging.info('new table '+str(self.cnt))
@@ -69,7 +53,6 @@ class MyService(rpyc.Service):
             pass
         self.dictTable={}
         return 1
-
 
     def exposed_connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -117,10 +100,8 @@ class MyService(rpyc.Service):
             self.dictTable[next][k]=0
 
     def exposed_pagerank(self, graph, curr, delta, factor):
-
         while not self.working:
             pass
-
         self.clearnext(delta, curr)
         logging.info('pagerank on worker 1')
         cnt = 0
@@ -158,7 +139,7 @@ class MyService(rpyc.Service):
         while not self.working:
             pass
         logging.info('set table')
-        self.dictTable[i].update(table)
+        self.dictTable[i]=copy.deepcopy(table)
 
         return 1
 
@@ -169,15 +150,6 @@ class MyService(rpyc.Service):
         print 'initpr'
         self.working=0
 
-        gtable =self.dictTable[graph].copy()
-        self.dictTable[graph]={}
-        nedge = 0
-        for v in gtable:
-            self.dictTable[graph][v]=[]
-            nedge+=len(gtable[v])
-            for adj in gtable[v]:
-                self.dictTable[graph][v].append(adj)
-        print 'nVertex:', len(gtable), 'nEdge:', nedge
 
         for k in self.dictTable[graph].iterkeys():
             self.dictTable[curr][k]=random.random()
@@ -192,7 +164,7 @@ class MyService(rpyc.Service):
 
         print 'checkpoint curr'
         self.exposed_restore(curr)
-        print 'checkpoint graph'
+
         self.exposed_restore(graph)
         print 'init finish'
         return 1
@@ -220,7 +192,7 @@ if __name__ == "__main__":
     status = mastersock.root.getworkerstatus(WORKERHOST,WORKERPORT)
     workermanager = threading.Thread(target = runserver, args=(MyService, WORKERPORT ))
     workermanager.start()
-    time.sleep(2)
+    time.sleep(1)
     mastersock.root.connectwk(WORKERHOST, WORKERPORT)
 
 

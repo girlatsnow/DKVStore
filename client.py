@@ -4,12 +4,10 @@ __email__ = 'cui.judy.lee@gmail.com'
 #coding: utf-8
 
 import rpyc
-import random
-import pickle
 
 class client:
     def __init__(self, host='localhost', port=5050):
-        self.sock = rpyc.connect(host, port, config={"allow_all_attrs": True}, keepalive=True)
+        self.sock = rpyc.connect(host, port, config={"allow_all_attrs": True, "allow_pickle":True}, keepalive=True)
 
     def get(self,i,a):
         return self.sock.root.get(i,a)
@@ -51,15 +49,19 @@ if __name__== '__main__':
 
 
     graph = {}
-    file = open(r'data\Wiki-Vote-adj.txt')
+    file = open(r'data\Wiki-Vote-adj.txt', 'r')
     for line in file:
         vs = map(int, line.split())
-        graph[vs[0]]=list(vs[1:])
-
+        graph[vs[0]]=vs[1:]
     file.close()
-    # fout = open(r'data\Wiki-Vote-adj-pickle', 'wb')
-    # pickle.dump(graph,fout,-1)
-    # fout.close()
+    print len(graph)
+    # pfile = open(r'data\Wiki-Vote-adj-pickle.1', 'wb')
+    # pickle.dump(graph,pfile)
+    #
+    # pfile.close()
+    # #
+
+
 
     # graph[1]=[2,3]
     # graph[2]=[3]

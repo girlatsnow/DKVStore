@@ -4,12 +4,9 @@ __email__ = 'cui.judy.lee@gmail.com'
 #coding: utf-8
 import rpyc
 import threading
-import time
-import socket
 import logging
-import random
 from rpyc.utils.server import ThreadedServer
-import enum
+
 
 
 
@@ -21,7 +18,7 @@ WorkerSockets = {}  #worker: sock
 
 
 logging.basicConfig(level=logging.INFO)
-logging.FileHandler('master.log')
+
 
 class MworkerService(rpyc.Service):
     def on_connect(self):
@@ -47,6 +44,7 @@ class MclientService(rpyc.Service):
     worklist = []
 
     def on_connect(self):
+        self.worklist=[]
         for w in WorkingList:
             self.worklist.append(w)
         logging.info('total workers: '+str(len(self.worklist)))
@@ -118,21 +116,23 @@ class MclientService(rpyc.Service):
             try:
                 apr = rpyc.async( WorkerSockets[w].root.pagerank)
                 tmp = apr(graph, curr, next, factor)
-
+                tmp.set_expiry(120)
+                tmp.wait()
+                for vid, rank in  tmp.value.iteritems():
+                    if vid in self.resnext:
+                        self.resnext[vid]+=rank
+                    else:
+                        self.resnext[vid]=rank
             except Exception as e:
                     pass
             else:
-                if tmp is None:
+                if tmp.expired:
                     pass
                 else:
                     break
-        while not tmp.ready:
-            pass
-        for vid, rank in  tmp.value.iteritems():
-                if vid in self.resnext:
-                    self.resnext[vid]+=rank
-                else:
-                    self.resnext[vid]=rank
+
+
+
         self.pr+=1
         logging.info('thread pr finish')
 
@@ -142,6 +142,8 @@ class MclientService(rpyc.Service):
         for x, r in table.iteritems():
             if x%len(self.worklist)==i:
                 tmp[x]=r
+
+
         why = None
         while (True):
             try:
