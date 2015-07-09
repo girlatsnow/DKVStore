@@ -13,11 +13,12 @@ from rpyc.utils.server import ThreadedServer
 
 
 logging.basicConfig(level=logging.INFO)
-logging.FileHandler('worker1.log')
 
-HOST = 'localhost'
-PORT= 5051
+MASTERHOST = 'localhost'
+MASTERPORT= 5051
 
+WORKERHOST = 'localhost'
+WORKERPORT=18861
 DIR = 'checkpoint_18861'
 
 
@@ -72,7 +73,7 @@ class MyService(rpyc.Service):
 
     def exposed_connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((HOST, PORT))
+        self.sock.connect((MASTERHOST, MASTERPORT))
         logging.info('send connect to master')
 
     
@@ -168,8 +169,7 @@ class MyService(rpyc.Service):
         print 'initpr'
         self.working=0
 
-        gtable ={}
-        gtable.update(self.dictTable[graph])
+        gtable =self.dictTable[graph].copy()
         self.dictTable[graph]={}
         nedge = 0
         for v in gtable:
@@ -216,12 +216,12 @@ def runserver(Sv, prt):
     masterforworker.start()
 
 if __name__ == "__main__":
-    mastersock = rpyc.connect(HOST, PORT, config={"allow_all_attrs": True, "allow_pickle":True})
-    status = mastersock.root.getworkerstatus('localhost',18861)
-    workermanager = threading.Thread(target = runserver, args=(MyService, 18861, ))
+    mastersock = rpyc.connect(MASTERHOST, MASTERPORT, config={"allow_all_attrs": True, "allow_pickle":True})
+    status = mastersock.root.getworkerstatus(WORKERHOST,WORKERPORT)
+    workermanager = threading.Thread(target = runserver, args=(MyService, WORKERPORT ))
     workermanager.start()
     time.sleep(2)
-    mastersock.root.connectwk('localhost', 18861)
+    mastersock.root.connectwk(WORKERHOST, WORKERPORT)
 
 
 

@@ -224,8 +224,8 @@ def runserver(Sv, prt):
 if __name__ == "__main__":
     workermanager = threading.Thread(target = runserver, args=(MworkerService, 5051, ))
     workermanager.start()
-    workermanager = threading.Thread(target = runserver, args=(MclientService, 5050, ))
-    workermanager.start()
+    clientmanager = threading.Thread(target = runserver, args=(MclientService, 5050, ))
+    clientmanager.start()
 
 
 
