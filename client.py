@@ -5,6 +5,7 @@ __email__ = 'cui.judy.lee@gmail.com'
 
 import rpyc
 import random
+import pickle
 
 class client:
     def __init__(self, host='localhost', port=5050):
@@ -25,11 +26,24 @@ class client:
     def cleartable(self, i):
         return self.sock.root.cleartable(i)
     def pagerank(self, graph, curr, next, factor):
-        return self.sock.root.pagerank(graph, curr, next, factor)
-    def initpr(self, graphdata, gtable, ctable):
-        return self.sock.root.initpr(graphdata, gtable, ctable)
+        apr = rpyc.async(self.sock.root.pagerank)
+        res = apr(graph, curr, next, factor)
+        while not res.ready:
+            pass
+        return res.value
+    def initpr(self, graphdata, gtable, ctable, ntable):
+        ai = rpyc.async(self.sock.root.initpr)
+        res = ai(graphdata, gtable, ctable, ntable)
+        while not res.ready:
+            pass
+        print 'init finish'
+        return res.value
     def get_table(self, i):
-        return self.sock.root.gettable(i)
+        agt = rpyc.async(self.sock.root.gettable)
+        res = agt(i)
+        while not res.ready:
+            pass
+        return res.value
 
 
 if __name__== '__main__':
@@ -37,18 +51,21 @@ if __name__== '__main__':
 
 
     graph = {}
-    # file = open(r'data\Wiki-Vote-adj.txt')
-    # for line in file:
-    #     vs = map(int, line.split())
-    #     graph[vs[0]]=list(vs[1:])
+    file = open(r'data\Wiki-Vote-adj.txt')
+    for line in file:
+        vs = map(int, line.split())
+        graph[vs[0]]=list(vs[1:])
+
+    file.close()
+    # fout = open(r'data\Wiki-Vote-adj-pickle', 'wb')
+    # pickle.dump(graph,fout,-1)
+    # fout.close()
+
+    # graph[1]=[2,3]
+    # graph[2]=[3]
+    # graph[3]=[2]
     #
-    # file.close()
-
-    graph[1]=[2,3]
-    graph[2]=[3]
-    graph[3]=[2]
-
-    print graph
+    # print graph
 
     print 'pagerank init'
     curr = m.create_table()
@@ -58,14 +75,12 @@ if __name__== '__main__':
 
     print curr, next, g
 
-    m.initpr(graph, g, curr)
+    m.initpr(graph, g, curr, next)
 
     print 'pagerank'
     print m.get_table(curr)
     for i in xrange(1000):
         a = m.pagerank(g, curr, next, 1)
-        # while not a==1:
-        #     pass
         print 'ITERATIION ', i, m.get_table(curr)
 
     m.cleartable(curr)

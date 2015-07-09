@@ -113,16 +113,22 @@ class MclientService(rpyc.Service):
 
     def t_pr(self, w, graph, curr, next, factor):
         logging.info('thread pr')
-        tmp = None
+
         while (True):
             try:
-                tmp = WorkerSockets[w].root.pagerank(graph, curr, next, factor)
+                apr = rpyc.async( WorkerSockets[w].root.pagerank)
+                tmp = apr(graph, curr, next, factor)
 
             except Exception as e:
                     pass
             else:
-                break
-        for vid, rank in  tmp.iteritems():
+                if tmp is None:
+                    pass
+                else:
+                    break
+        while not tmp.ready:
+            pass
+        for vid, rank in  tmp.value.iteritems():
                 if vid in self.resnext:
                     self.resnext[vid]+=rank
                 else:
@@ -165,16 +171,19 @@ class MclientService(rpyc.Service):
         return 1
 
 
-    def t_initpr(self, w, graphid, currid):
-        r = WorkerSockets[w].root.initpr(graphid, currid)
-        self.ipr+=r
+    def t_initpr(self, w, graphid, currid, nextid):
+        aipr = rpyc.async(WorkerSockets[w].root.initpr)
+        res = aipr(graphid, currid, nextid)
+        while not res.ready:
+            pass
+        self.ipr+=res.value
 
-    def exposed_initpr(self, graphdata, gtable, currtable):
+    def exposed_initpr(self, graphdata, gtable, currtable, nexttable):
         self.exposed_settable(gtable, graphdata, False)
         self.ipr = 0
         print 'cnt of workers:', len(self.worklist)
         for w in self.worklist:
-            t = threading.Thread(target = self.t_initpr, args=(w, gtable, currtable, ))
+            t = threading.Thread(target = self.t_initpr, args=(w, gtable, currtable, nexttable))
             t.start()
         while self.ipr<len(self.worklist):
             pass
@@ -188,15 +197,12 @@ class MclientService(rpyc.Service):
             try:
                 tmp = WorkerSockets[w].root.gettable(i)
                 cnt = len(tmp)
+                self.gtres.update(tmp)
             except Exception as e:
-                    pass
-
+                pass
             else:
-                if tmp is None:
-                    pass
-                else:
-                    break
-        self.gtres.update(tmp)
+                break
+
         self.gt+=1
         logging.info('thread gettable finish')
 

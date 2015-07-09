@@ -34,19 +34,20 @@ class MyService(rpyc.Service):
         logging.info('on connect')
         self.status = status
         if not self.status== 0:
+            print 'load checkpoint'
             for fname in os.listdir(DIR):
-                if not fname=='graph':
+                #if not fname=='graph':
                     f = open(os.path.join(DIR, fname), 'rb')
                     mp = pickle.load(f)
                     f.close()
                     self.dictTable[int(fname)] = mp
-
-            gf = open(os.path.join(DIR, 'graph'), 'r')
-            gid = int(gf.readline().strip())
-            self.dictTable[gid]={}
-            for line in gf:
-                gl = line.split()
-                self.dictTable[gid][int(gl[0])]=map(int, gl[1:])
+            #
+            # gf = open(os.path.join(DIR, 'graph'), 'r')
+            # gid = int(gf.readline().strip())
+            # self.dictTable[gid]={}
+            # for line in gf:
+            #     gl = line.split()
+            #     self.dictTable[gid][int(gl[0])]=map(int, gl[1:])
 
         self.working = True
 
@@ -108,24 +109,27 @@ class MyService(rpyc.Service):
             pass
         return self.dictTable[i]
 
+    def clearnext(self, next, curr):
+        if not next in self.dictTable:
+            self.dictTable[next]={}
+        for k in self.dictTable[curr]:
+            self.dictTable[next][k]=0
+
     def exposed_pagerank(self, graph, curr, delta, factor):
-        print 'pagerank'
 
         while not self.working:
             pass
-        self.dictTable[delta]={}
+
+        self.clearnext(delta, curr)
         logging.info('pagerank on worker 1')
         cnt = 0
+        print 'pagerank'
         for vid, adjs in self.dictTable[graph].iteritems():
-            cnt+=1
-            print cnt
-            if not vid in self.dictTable[curr]:
-                    self.dictTable[curr][vid]=0
+            cadjs = len(adjs)
             for adj in adjs:
-                if not adj in self.dictTable[delta]:
+                if adj not in self.dictTable[delta]:
                     self.dictTable[delta][adj]=0
-                if len(self.dictTable[graph][vid])>0:
-                    self.dictTable[delta][adj]+=factor* self.dictTable[curr][vid]*1.0/len(self.dictTable[graph][vid])
+                self.dictTable[delta][adj]+=factor* self.dictTable[curr][vid]*1.0/cadjs
         logging.info('finish pagerank on worker 1')
         print 'finish pagerank'
         return self.dictTable[delta]
@@ -157,14 +161,27 @@ class MyService(rpyc.Service):
 
         return 1
 
-    def exposed_initpr(self, graph, curr):
+    def exposed_initpr(self, graph, curr, next):
         print 'init pr'
         while not self.working:
             pass
         print 'initpr'
         self.working=0
+
+        gtable ={}
+        gtable.update(self.dictTable[graph])
+        self.dictTable[graph]={}
+        nedge = 0
+        for v in gtable:
+            self.dictTable[graph][v]=[]
+            nedge+=len(gtable[v])
+            for adj in gtable[v]:
+                self.dictTable[graph][v].append(adj)
+        print 'nVertex:', len(gtable), 'nEdge:', nedge
+
         for k in self.dictTable[graph].iterkeys():
             self.dictTable[curr][k]=random.random()
+            self.dictTable[next][k]=0
         print 'number of vertices: ', len(self.dictTable[graph])
         if os.path.exists(DIR):
             for f in os.listdir(DIR):
@@ -173,32 +190,23 @@ class MyService(rpyc.Service):
             os.mkdir(DIR)
         self.working=1
 
-        #self.exposed_restore(graph)
-
-        self.savegraph(graph)
+        print 'checkpoint curr'
         self.exposed_restore(curr)
-
+        print 'checkpoint graph'
+        self.exposed_restore(graph)
+        print 'init finish'
         return 1
 
 
-
-    def savegraph(self, graph):
-        while not self.working:
-            pass
-        f = open(os.path.join(DIR,'graph'), 'w')
-        f.write(str(graph)+'\n')
-        for v, adjs in self.dictTable[graph].iteritems():
-            f.write(str(v)+' '+' '.join(map(str, adjs))+'\n')
-        f.close()
 
     def exposed_restore(self, tableid):
         while not self.working:
             pass
 
         f=open(os.path.join(DIR,str(tableid)), 'wb')
-        print tableid, f.name, self.dictTable[tableid]
+        #print tableid, f.name, self.dictTable[tableid]
         pickle.dump(self.dictTable[tableid], f, pickle.HIGHEST_PROTOCOL)
-        print 0
+        #print 0
         f.close()
 
 
