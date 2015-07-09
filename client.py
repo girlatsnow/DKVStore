@@ -5,6 +5,10 @@ __email__ = 'cui.judy.lee@gmail.com'
 
 import rpyc
 
+MASTERHOST = 'localhost'
+MASTERPORT = '5050'
+
+
 class client:
     def __init__(self, host='localhost', port=5050):
         self.sock = rpyc.connect(host, port, config={"allow_all_attrs": True, "allow_pickle":True}, keepalive=True)
@@ -45,43 +49,28 @@ class client:
 
 
 if __name__== '__main__':
-    m = client()
-
-
+    m = client(host=MASTERHOST, port=MASTERPORT)
     graph = {}
     file = open(r'data\Wiki-Vote-adj.txt', 'r')
+    nedges = 0
     for line in file:
         vs = map(int, line.split())
         graph[vs[0]]=vs[1:]
+        nedges+=len(vs)-1
     file.close()
-    print len(graph)
-    # pfile = open(r'data\Wiki-Vote-adj-pickle.1', 'wb')
-    # pickle.dump(graph,pfile)
-    #
-    # pfile.close()
-    # #
-
-
-
-    # graph[1]=[2,3]
-    # graph[2]=[3]
-    # graph[3]=[2]
-    #
-    # print graph
+    print 'nVertex:', len(graph), 'nEdge:', nedges
 
     print 'pagerank init'
     curr = m.create_table()
     next = m.create_table()
-
     g = m.create_table()
 
-    print curr, next, g
-
+    print 'submit graph data'
     m.initpr(graph, g, curr, next)
+    print m.get_table(curr)
 
     print 'pagerank'
-    print m.get_table(curr)
-    for i in xrange(1000):
+    for i in xrange(100):
         a = m.pagerank(g, curr, next, 1)
         print 'ITERATIION ', i, m.get_table(curr)
 

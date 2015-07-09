@@ -16,8 +16,6 @@ MASTERPORT= 5051
 WORKERHOST = 'localhost'
 WORKERPORT=18861
 DIR = 'checkpoint_18861'
-
-
 status = 0
 
 
@@ -31,14 +29,13 @@ class MyService(rpyc.Service):
         logging.info('on connect')
         self.status = status
         if not self.status== 0:
-            print 'load checkpoint'
+            logging.info('load checkpoint')
             for fname in os.listdir(DIR):
                     f = open(os.path.join(DIR, fname), 'rb')
                     mp = pickle.load(f)
                     f.close()
                     self.dictTable[int(fname)] = mp
         self.working = True
-        print 'working status: ', self.working
 
     def exposed_createtable(self):
         while not self.working:
@@ -104,7 +101,6 @@ class MyService(rpyc.Service):
             pass
         self.clearnext(delta, curr)
         logging.info('pagerank on worker 1')
-        cnt = 0
         print 'pagerank'
         for vid, adjs in self.dictTable[graph].iteritems():
             cadjs = len(adjs)
@@ -144,12 +140,10 @@ class MyService(rpyc.Service):
         return 1
 
     def exposed_initpr(self, graph, curr, next):
-        print 'init pr'
         while not self.working:
             pass
-        print 'initpr'
+        logging.info('init for pagerank')
         self.working=0
-
 
         for k in self.dictTable[graph].iterkeys():
             self.dictTable[curr][k]=random.random()
@@ -162,26 +156,18 @@ class MyService(rpyc.Service):
             os.mkdir(DIR)
         self.working=1
 
-        print 'checkpoint curr'
         self.exposed_restore(curr)
-
         self.exposed_restore(graph)
-        print 'init finish'
+        logging.info('finish initiation')
         return 1
-
-
 
     def exposed_restore(self, tableid):
         while not self.working:
             pass
-
+        logging.info('checkpoint'+str(tableid))
         f=open(os.path.join(DIR,str(tableid)), 'wb')
-        #print tableid, f.name, self.dictTable[tableid]
         pickle.dump(self.dictTable[tableid], f, pickle.HIGHEST_PROTOCOL)
-        #print 0
         f.close()
-
-
 
 def runserver(Sv, prt):
     masterforworker = ThreadedServer( Sv, port = prt,protocol_config={"allow_all_attrs":True, "allow_pickle":True}, listener_timeout=20000)
