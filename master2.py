@@ -9,81 +9,119 @@ import socket
 import logging
 import random
 from rpyc.utils.server import ThreadedServer
-addr = [('localhost',18861), ('localhost',18862)]
+import enum
+
+
+
+WorkerStatus = {} #0=IDLE, 1=BUSY, 2=WAITING
+WorkingList = []
+WorkerSockets = {}  #worker: sock
+
+
+
+
 logging.basicConfig(level=logging.INFO)
+logging.FileHandler('master.log')
 
-class master(rpyc.Service):
-    socks = []
+class MworkerService(rpyc.Service):
+    def on_connect(self):
+        pass
+    def on_disconnect(self):
+        if (self.host, self.port) in WorkingList:
+            WorkingList.remove((self.host, self.port))
 
-    def exposed_init(self):
-        self.alive=True
-        for i in range(len(addr)):
-            t = threading.Thread(target = self.run, args=(addr[i][0],addr[i][1],))
-            t.setDaemon(True)
-            t.start()
+    def exposed_getworkerstatus(self, host, port):
+        self.host = host
+        self.port = port
+        if not (host,port) in WorkerStatus:
+            WorkerStatus[(host, port)]=0
+        return WorkerStatus[(host, port)]
 
-        while len(self.socks)<len(addr):
-            pass
+    def exposed_connectwk(self, host, port):
+        self.sock = rpyc.connect(host, port, config={"allow_all_attrs": True,  "allow_pickle":True})
+        WorkerSockets[(host, port)]= self.sock
+        WorkingList.append((host, port))
 
+class MclientService(rpyc.Service):
+    #socks = []
+    worklist = []
 
-    def run(self, host, port):
-        #connect to worker
-        sock = rpyc.connect(host, port, config={"allow_all_attrs": True})
-        self.socks.append(sock)
+    def on_connect(self):
+        for w in WorkingList:
+            self.worklist.append(w)
+        logging.info('total workers: '+str(len(self.worklist)))
 
+    def on_disconnect(self):
+        for w in self.worklist:
+            WorkerStatus[w]=0
+
+    def getsock(self, i):
+        return WorkerSockets[self.worklist[i%len(self.worklist)]]
 
     def exposed_get(self,i,a):
-        res =  self.socks[a%len(addr)].root.get(i,a)
+        res =  self.getsock(a).root.get(i,a)
         logging.info('get %d', res)
         return res
 
     def exposed_set(self,i, a, b):
-        return self.socks[a%len(addr)].root.set(i,a, b)
+        return self.getsock(a).root.set(i,a, b)
 
     def exposed_update(self,i, k, delta):
-        return self.socks[k%len(addr)].root.update(i, k, delta)
+        return self.getsock(k).root.update(i, k, delta)
 
     def exposed_update_table2(self, frm, i, to, j):
-        return self.socks[i%len(addr)].root.update_table2(frm, i, to, j)
+        return self.getsock(i).root.update_table2(frm, i, to, j)
 
     def exposed_create_table(self):
-        for s in self.socks:
+        for s in [WorkerSockets[w] for w in self.worklist]:
             i = s.root.createtable()
         return i
 
     def exposed_cleartable(self, i):
         cnt=0
-        for s in self.socks:
+        for s in [WorkerSockets[w] for w in self.worklist]:
             cnt +=  s.root.cleartable(i)
         return cnt
 
     def exposed_swaptable(self, frm, to):
         cnt = 0
-        for s in self.socks:
+        for s in [WorkerSockets[w] for w in self.worklist]:
             cnt +=  s.root.swaptable(frm, to)
         return cnt
 
     def exposed_pagerank(self, graph, curr, next, factor):
+
         self.pr = 0
         self.resnext = {}
 
         # collect next -> res
         logging.info('pagerank')
-        for s in self.socks:
-            t = threading.Thread(target = self.t_pr, args=(s, graph, curr, next,factor,))
+
+        for w in self.worklist:
+            #s = WorkerSockets[w]
+            WorkerStatus[w]= 1
+            t = threading.Thread(target = self.t_pr, args=(w, graph, curr, next,factor,))
             t.start()
-        while self.pr<len(addr):
+
+        while self.pr<len(self.worklist):
             pass
 
         # swap res -> curr
         logging.info('swap table')
-        self.exposed_settable(curr, self.resnext)
-
+        self.exposed_settable(curr, self.resnext, True)
         return 1
 
-    def t_pr(self, s, graph, curr, next, factor):
+    def t_pr(self, w, graph, curr, next, factor):
         logging.info('thread pr')
-        tmp = s.root.pagerank(graph, curr, next, factor)
+        tmp = None
+        while (True):
+            try:
+                tmp = WorkerSockets[w].root.pagerank(graph, curr, next, factor)
+
+            except Exception as e:
+                    pass
+            else:
+                break
         for vid, rank in  tmp.iteritems():
                 if vid in self.resnext:
                     self.resnext[vid]+=rank
@@ -92,50 +130,99 @@ class master(rpyc.Service):
         self.pr+=1
         logging.info('thread pr finish')
 
-    def t_settable(self, s, i, curr, table):
+    def t_settable(self, w, i, curr, table, RESTORE=False):
         logging.info('thread set table')
         tmp={}
         for x, r in table.iteritems():
-            if x%len(addr)==i:
+            if x%len(self.worklist)==i:
                 tmp[x]=r
-        why = s.root.settable(curr, tmp)
+        why = None
+        while (True):
+            try:
+                why = WorkerSockets[w].root.settable(curr, tmp)
+            except Exception as e:
+                pass
+            else:
+                if why is None:
+                    pass
+                else:
+                    break
         self.st += why
         logging.info('thread set table finish')
+        if RESTORE:
+            WorkerSockets[w].root.restore(curr)
 
-    def exposed_settable(self, to, table):
+    def exposed_settable(self, to, table, RESTORE):
         self.st = 0
-        for i,s in enumerate(self.socks):
-            t = threading.Thread(target = self.t_settable, args=(s, i, to, table))
+        for i,w in enumerate(self.worklist):
+            WorkerStatus[w]=2
+            #s=WorkerSockets[w]
+            t = threading.Thread(target = self.t_settable, args=(w, i, to, table, RESTORE, ))
             t.start()
-        while self.st<len(addr):
+        while self.st<len(self.worklist):
             pass
+
         return 1
 
+
+    def t_initpr(self, w, graphid, currid):
+        r = WorkerSockets[w].root.initpr(graphid, currid)
+        self.ipr+=r
 
     def exposed_initpr(self, graphdata, gtable, currtable):
-        self.exposed_settable(gtable, graphdata)
-        currdata = {}
-        for k in graphdata.iterkeys():
-            currdata[k]=random.random()
-        self.exposed_settable( currtable, currdata)
+        self.exposed_settable(gtable, graphdata, False)
+        self.ipr = 0
+        print 'cnt of workers:', len(self.worklist)
+        for w in self.worklist:
+            t = threading.Thread(target = self.t_initpr, args=(w, gtable, currtable, ))
+            t.start()
+        while self.ipr<len(self.worklist):
+            pass
+
         return 1
 
+    def t_gettable(self, w, i):
+        logging.info('thread get table')
+        tmp = None
+        while (True):
+            try:
+                tmp = WorkerSockets[w].root.gettable(i)
+                cnt = len(tmp)
+            except Exception as e:
+                    pass
+
+            else:
+                if tmp is None:
+                    pass
+                else:
+                    break
+        self.gtres.update(tmp)
+        self.gt+=1
+        logging.info('thread gettable finish')
+
     def exposed_gettable(self, i):
-        res = {}
-        for s in self.socks:
-            t = s.root.gettable(i)
-            res.update(t)
-        return res
+        self.gtres = {}
+        self.gt = 0
+        for w in self.worklist:
+            t = threading.Thread(target=self.t_gettable, args=(w,i,))
+            t.start()
+
+        while self.gt<len(self.worklist):
+            pass
+        return self.gtres
+
+def runserver(Sv, prt):
+    masterforworker = ThreadedServer( Sv, port = prt,protocol_config={"allow_all_attrs":True, "allow_pickle":True},listener_timeout=20000)
+    masterforworker.start()
+
 if __name__ == "__main__":
+    workermanager = threading.Thread(target = runserver, args=(MworkerService, 5051, ))
+    workermanager.start()
+    workermanager = threading.Thread(target = runserver, args=(MclientService, 5050, ))
+    workermanager.start()
 
-    masterforclient = ThreadedServer( master, port = 5050,protocol_config={"allow_all_attrs":True})
-    masterforclient.start()
 
 
-
-
-    while(True):
-        pass
 
 
 
